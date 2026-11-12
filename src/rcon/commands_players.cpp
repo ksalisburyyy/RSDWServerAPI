@@ -1,4 +1,5 @@
 #include "rcon_commands.h"
+#include "../utils/command_args.h"
 #include "../api/serialize.h"
 #include "../engine/bans.h"
 #include "../engine/chat.h"
@@ -90,14 +91,15 @@ void RegisterPlayerCommands() {
                   if (!DomChat::Broadcast("[Server] " + message, error)) {
                       return "Broadcast failed: " + error;
                   }
-                  return "Broadcast sent.";
+                  return "Broadcast RPC invoked; client display unconfirmed.";
               }});
 
     Register({"give", "give <player> <item> [count]", "Give an item to a player.",
               [](const std::vector<std::string>& args) -> std::string {
                   if (!EngineReady()) return "Engine not initialized yet.";
-                  if (args.size() < 2) return "Usage: give <player> <item> [count]";
-                  int count = args.size() > 2 ? atoi(args[2].c_str()) : 1;
+                  if (args.size() < 2 || args.size()>3) return "Usage: give <player> <item> [count]";
+                  int count=1;
+                  if(args.size()==3 && !CommandArgs::Count(args[2],count))return "Count must be a whole number between 1 and 100000.";
                   std::string message;
                   DomItems::GiveItem(args[0], args[1], count, message);
                   return message;

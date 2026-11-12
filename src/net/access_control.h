@@ -22,6 +22,7 @@ private:
         uint32_t network;
         uint32_t mask;
     };
+    bool m_DenyAll=false;
     std::vector<Rule> m_Rules;
     std::vector<std::string> m_Rejected;
 };

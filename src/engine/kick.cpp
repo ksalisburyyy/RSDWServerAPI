@@ -5,7 +5,8 @@
 #include "../utils/memory.h"
 
 #include <cstring>
-#include <mutex>
+#include <codecvt>
+#include <locale>
 #include <vector>
 
 namespace DomEngine {
@@ -26,15 +27,9 @@ struct ConvStringToTextParams {
     uint8_t ReturnValue[0x10];   // 0x10, FText
 };
 
-void WriteFString(FString& out, const std::string& value) {
-    int32_t count = (int32_t)value.size() + 1;
-    char16_t* buffer = new char16_t[(size_t)count];
-    for (size_t i = 0; i < value.size(); i++) buffer[i] = (char16_t)(unsigned char)value[i];
-    buffer[value.size()] = 0;
-
-    out.Data = buffer;
-    out.Num = count;
-    out.Max = count;
+void WriteFString(FString& out,const std::u16string& value) {
+    out.Data=const_cast<char16_t*>(value.c_str());
+    out.Num=(int32_t)value.size()+1;out.Max=out.Num;
 }
 
 }
@@ -57,14 +52,12 @@ bool Engine::KickPlayer(const std::string& identifier, const std::string& reason
 
     uintptr_t controller = 0;
     std::string matched;
-    std::string matchedNetId;
     std::string matchedBy;
 
     for (const PlayerInfo& player : players) {
         if (std::to_string(player.playerId) != identifier) continue;
         controller = player.controllerPtr;
         matched = player.name;
-        matchedNetId = player.uniqueNetId;
         matchedBy = "playerId";
         break;
     }
@@ -77,8 +70,7 @@ bool Engine::KickPlayer(const std::string& identifier, const std::string& reason
             hits++;
             controller = player.controllerPtr;
             matched = player.name;
-            matchedNetId = player.uniqueNetId;
-        }
+            }
 
         if (hits > 1) {
             outError = "'" + identifier + "' matches " + std::to_string(hits) +
@@ -132,7 +124,9 @@ bool Engine::KickPlayer(const std::string& identifier, const std::string& reason
     bool ran = GameThread::RunSync([&]() {
         if (textFunction && textLibrary && NativeCall::IsNative(textFunction)) {
             ConvStringToTextParams textParams = {};
-            WriteFString(textParams.InString, reason);
+            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> converter;
+            std::u16string reasonText=converter.from_bytes(reason);
+            WriteFString(textParams.InString,reasonText);
             // Source: RSDWSDK/CppSDK/SDK/Engine_parameters.hpp:45950
             if (NativeCall::Invoke(textLibrary, textFunction, &textParams, 0x10)) {
                 memcpy(params.KickReason, textParams.ReturnValue, sizeof(params.KickReason));
@@ -164,111 +158,7 @@ bool Engine::KickPlayer(const std::string& identifier, const std::string& reason
     }
 
     LogMessage("Kick: removed '" + matched + "' (" + reason + ")");
-    RememberKick(matchedNetId, matched, reason);
     return true;
-}
-
-namespace {
-
-struct KickedPlayer {
-    std::string netId;
-    std::string name;
-    std::string reason;
-};
-
-std::mutex g_KickedMutex;
-std::vector<KickedPlayer> g_Kicked;
-
-}
-
-void Engine::RememberKick(const std::string& netId, const std::string& name,
-                          const std::string& reason) const {
-    if (netId.empty()) {
-        LogMessage("Kick: '" + name + "' has no net id, so the kick cannot be enforced "
-                   "across a reconnect");
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(g_KickedMutex);
-    for (const KickedPlayer& entry : g_Kicked) {
-        if (entry.netId == netId) return;
-    }
-    g_Kicked.push_back({netId, name, reason});
-}
-
-bool Engine::IsKicked(const std::string& netId) const {
-    if (netId.empty()) return false;
-    std::lock_guard<std::mutex> lock(g_KickedMutex);
-    for (const KickedPlayer& entry : g_Kicked) {
-        if (entry.netId == netId) return true;
-    }
-    return false;
-}
-
-std::vector<std::string> Engine::KickedNetIds() const {
-    std::lock_guard<std::mutex> lock(g_KickedMutex);
-    std::vector<std::string> out;
-    out.reserve(g_Kicked.size());
-    for (const KickedPlayer& entry : g_Kicked) out.push_back(entry.netId);
-    return out;
-}
-
-bool Engine::ClearKick(const std::string& netId) const {
-    std::lock_guard<std::mutex> lock(g_KickedMutex);
-    for (size_t i = 0; i < g_Kicked.size(); i++) {
-        if (g_Kicked[i].netId != netId) continue;
-        g_Kicked.erase(g_Kicked.begin() + (long)i);
-        return true;
-    }
-    return false;
-}
-
-void Engine::EnforceKicks() const {
-    if (!initialized || !GameThread::IsReady()) return;
-
-    std::vector<std::string> wanted = KickedNetIds();
-    if (wanted.empty()) return;
-
-    for (const PlayerInfo& player : GetAllPlayers()) {
-        if (player.uniqueNetId.empty()) continue;
-
-        bool listed = false;
-        std::string reason = "Kicked by an administrator";
-        {
-            std::lock_guard<std::mutex> lock(g_KickedMutex);
-            for (const KickedPlayer& entry : g_Kicked) {
-                if (entry.netId != player.uniqueNetId) continue;
-                listed = true;
-                reason = entry.reason;
-                break;
-            }
-        }
-        if (!listed) continue;
-
-        LogMessage("Kick: '" + player.name + "' reconnected while kicked, removing again");
-        std::string error;
-        if (!KickPlayer(player.uniqueNetId, reason, error)) {
-            LogMessage("Kick: re-kick failed - " + error);
-        }
-    }
-}
-
-uintptr_t Engine::FindFunction(const char* className, const char* functionName) const {
-    if (!className || !functionName) return 0;
-
-    std::string wanted = functionName;
-    int32_t count = GetObjectCount();
-    for (int32_t i = 0; i < count; i++) {
-        uintptr_t object = GetObjectByIndex(i);
-        if (!object) continue;
-        if (GetObjectClassName(object) != "Function") continue;
-        if (GetObjectName(object) != wanted) continue;
-
-        uintptr_t outer = Mem::ReadPtr(object + Offsets::UObject_Outer);
-        if (GetObjectName(outer) != className) continue;
-        return object;
-    }
-    return 0;
 }
 
 }

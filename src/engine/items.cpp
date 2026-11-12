@@ -55,6 +55,11 @@ bool ResolveGive(std::string& outError) {
         outError = "TryGiveItemToPlayer is not native";
         return false;
     }
+    const auto shape=(uint32_t)Mem::ReadI32(g_GiveFunction+0xB4);
+    if(((shape>>16)&0xffff)!=0x15 || (shape&0xff)!=4) {
+        outError = "TryGiveItemToPlayer has an unsupported reflected signature";
+        return false;
+    }
     if (!GameThread::IsReady()) {
         outError = "give needs the game thread pump: " + GameThread::Status();
         return false;
@@ -124,7 +129,7 @@ uintptr_t FindItem(const std::string& name, std::string& outResolvedName) {
 bool GiveItemToController(uintptr_t controller, uintptr_t itemData, int32_t count) {
     std::string error;
     if (!ResolveGive(error)) return false;
-    if (!controller || !itemData || count <= 0) return false;
+    if (!controller || !itemData || count <= 0 || count > 100000) return false;
 
     GiveParams params = {};
     params.PlayerController = controller;
@@ -147,8 +152,8 @@ bool GiveItem(const std::string& player, const std::string& item, int32_t count,
         outMessage = error;
         return false;
     }
-    if (count <= 0) {
-        outMessage = "count must be at least 1";
+    if (count <= 0 || count > 100000) {
+        outMessage = "count must be between 1 and 100000";
         return false;
     }
 
@@ -162,13 +167,17 @@ bool GiveItem(const std::string& player, const std::string& item, int32_t count,
     uintptr_t controller = 0;
     std::string matched;
     std::string wanted = Lower(player);
+    int matches=0;
     for (const PlayerInfo& p : engine->GetAllPlayers()) {
         if (std::to_string(p.playerId) == player || Lower(p.uniqueNetId) == wanted ||
             Lower(p.characterGuid) == wanted || Lower(p.characterName) == wanted ||
             Lower(p.name) == wanted) {
+            if(++matches>1) {
+                outMessage = "ambiguous player; use a unique network ID or character GUID";
+                return false;
+            }
             controller = p.controllerPtr;
-            matched = p.name;
-            break;
+            matched = p.characterName.empty()?p.name:p.characterName;
         }
     }
     if (!controller) {

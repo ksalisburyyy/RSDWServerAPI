@@ -11,6 +11,7 @@
 #include <vector>
 
 struct HttpRequest {
+    std::string role,accessId,accessLabel;
     std::string method;
     std::string path;
     std::string body;
@@ -20,6 +21,7 @@ struct HttpRequest {
 
 struct HttpResponse {
     int status = 200;
+    bool auditRecorded = false;
     std::string body;
     std::string contentType = "application/json";
 
@@ -39,7 +41,7 @@ private:
     int listenSocket;
     std::vector<RouteEntry> routes;
     std::mutex routesMutex;
-    bool running;
+    std::atomic<bool> running;
     int m_Port;
     std::string m_BindAddress;
     std::thread* listenerThread;

@@ -12,6 +12,8 @@ bool Initialize(uintptr_t moduleBase, uintptr_t moduleEnd);
 bool InstallExecPump();
 
 bool IsReady();
+// -1 until the first observed game-thread pump.
+double PumpAgeSeconds();
 bool IsGameThread();
 
 bool HasProcessEvent();
@@ -24,6 +26,8 @@ uintptr_t FrameLocalsOffset();
 uintptr_t FramePropertyChainOffset();
 uintptr_t ProcessEventAddress();
 const std::string& Status();
+
+void StopJobs();
 
 bool RunSync(const std::function<void()>& work, int timeoutMs = 5000);
 

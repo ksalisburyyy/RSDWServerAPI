@@ -1,5 +1,5 @@
 set_project("rsdw-serverapi")
-set_version("0.1.4")
+set_version("0.5.0")
 
 add_rules("mode.release")
 set_languages("c++17")
@@ -10,6 +10,15 @@ target("rsdwapi")
     set_kind("shared")
     add_files("src/rsdwapi.cpp",
               "src/runtime.cpp",
+              "src/thc/store.cpp",
+              "src/thc/metrics.cpp",
+              "src/thc/control.cpp",
+              "src/thc/access.cpp",
+              "src/engine/administration.cpp", "src/engine/world_save.cpp",
+              "src/thc/service.cpp",
+              "src/thc/combat.cpp", "src/thc/death_telemetry.cpp",
+              "src/discord/delivery.cpp",
+              "src/api/thc_routes.cpp",
               "src/api/api_routes.cpp",
               "src/api/system_routes.cpp",
               "src/api/player_routes.cpp",
@@ -17,6 +26,7 @@ target("rsdwapi")
               "src/engine/engine_core.cpp",
               "src/engine/uobject.cpp",
               "src/engine/players.cpp",
+              "src/engine/function_lookup.cpp",
               "src/engine/kick.cpp",
               "src/engine/chat.cpp",
               "src/engine/items.cpp",

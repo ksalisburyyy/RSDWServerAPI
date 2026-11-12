@@ -2,6 +2,7 @@
 #include "../utils/json.h"
 
 #include <cstdio>
+#include <cmath>
 #include <sstream>
 
 namespace Serialize {
@@ -13,6 +14,7 @@ std::string Q(const std::string& value) {
 }
 
 std::string Num(double value) {
+    if(!std::isfinite(value))return "null";
     char buf[64];
     snprintf(buf, sizeof(buf), "%.3f", value);
     return buf;

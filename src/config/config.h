@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <sstream>
+#include "../utils/atomic_file.h"
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -36,7 +38,7 @@ inline void EnsureDir(const std::string& path) {
 struct RestConfig {
     bool enabled = true;
     int port = 8080;
-    std::string bindAddress = "0.0.0.0";
+    std::string bindAddress = "127.0.0.1";
     std::string bearerToken;
     std::string ipWhitelist;
 };
@@ -44,7 +46,7 @@ struct RestConfig {
 struct RconConfig {
     bool enabled = false;
     int port = 27020;
-    std::string bindAddress = "0.0.0.0";
+    std::string bindAddress = "127.0.0.1";
     std::string password;
     std::string ipWhitelist;
     int commandsPerMinute = 60;
@@ -59,10 +61,14 @@ struct DiscordConfig {
     bool enabled = false;
     std::string webhookUrl;
     std::string deathWebhookUrl;
+    std::string presenceWebhookUrl, statusWebhookUrl, adminWebhookUrl;
+    std::string chatThreadId, deathThreadId, presenceThreadId, statusThreadId, adminThreadId;
     std::string username = "Dragonwilds";
 };
 
 struct APIConfig {
+    std::string worldSaveCommand;
+    bool combatTracking = true;
     bool enableLogging = true;
     bool verboseLogging = true;
     RestConfig rest;
@@ -104,15 +110,16 @@ struct APIConfig {
     void GenerateSecrets() {
         rest.bearerToken = GenerateSecureToken(32);
         rcon.password = GenerateSecureToken(12);
+        if(rest.bearerToken.empty())rest.enabled=false;
     }
 
-    void Save(const std::string& configPath) {
-        std::ofstream file(configPath);
-        if (!file.is_open()) return;
+    bool Save(const std::string& configPath) {
+        std::ostringstream file;
 
         file << "# RSDWRestAPI configuration\n";
         file << "# Generated automatically - edit as needed, then restart the server.\n\n";
 
+        file << "[THC]\nCombatTracking=" << Bool(combatTracking) << "\nSaveCommand=" << worldSaveCommand << "\n\n";
         file << "[General]\n";
         file << "EnableLogging=" << Bool(enableLogging) << "\n";
         file << "# Logs every discovery step and every request. Leave on unless the volume hurts.\n";
@@ -157,6 +164,17 @@ struct APIConfig {
         file << "WebhookUrl=" << discord.webhookUrl << "\n";
         file << "DeathWebhookUrl=" << discord.deathWebhookUrl << "\n";
         file << "Username=" << discord.username << "\n";
+        file << "PresenceWebhookUrl=" << discord.presenceWebhookUrl << "\n";
+        file << "StatusWebhookUrl=" << discord.statusWebhookUrl << "\n";
+        file << "AdminWebhookUrl=" << discord.adminWebhookUrl << "\n";
+        file << "# Optional thread IDs override a thread in the webhook URL; blank preserves legacy URL routing.\n";
+        file << "ChatThreadId=" << discord.chatThreadId << "\n";
+        file << "DeathThreadId=" << discord.deathThreadId << "\n";
+        file << "PresenceThreadId=" << discord.presenceThreadId << "\n";
+        file << "StatusThreadId=" << discord.statusThreadId << "\n";
+        file << "AdminThreadId=" << discord.adminThreadId << "\n";
+        std::string error;
+        return WriteFileAtomically(configPath,file.str(),error);
     }
 
     static std::string GenerateSecureToken(size_t bytes) {
@@ -185,6 +203,11 @@ private:
     static bool ParseBool(const std::string& value) { return value == "true" || value == "1"; }
 
     void Apply(const std::string& section, const std::string& key, const std::string& value) {
+        if (section == "THC") {
+            if (key == "CombatTracking") combatTracking = ParseBool(value);
+            else if(key=="SaveCommand")worldSaveCommand=value;
+            return;
+        }
         if (section == "General") {
             if (key == "EnableLogging") enableLogging = ParseBool(value);
             else if (key == "VerboseLogging") verboseLogging = ParseBool(value);
@@ -220,6 +243,14 @@ private:
             else if (key == "WebhookUrl") discord.webhookUrl = value;
             else if (key == "DeathWebhookUrl") discord.deathWebhookUrl = value;
             else if (key == "Username") discord.username = value;
+            else if (key == "PresenceWebhookUrl") discord.presenceWebhookUrl = value;
+            else if (key == "StatusWebhookUrl") discord.statusWebhookUrl = value;
+            else if (key == "AdminWebhookUrl") discord.adminWebhookUrl = value;
+            else if (key == "ChatThreadId") discord.chatThreadId = value;
+            else if (key == "DeathThreadId") discord.deathThreadId = value;
+            else if (key == "PresenceThreadId") discord.presenceThreadId = value;
+            else if (key == "StatusThreadId") discord.statusThreadId = value;
+            else if (key == "AdminThreadId") discord.adminThreadId = value;
             return;
         }
     }

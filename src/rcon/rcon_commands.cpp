@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <mutex>
 #include <sstream>
+#include <iomanip>
+#include "../thc/service.h"
+#include "../utils/command_args.h"
 
 namespace Rcon {
 
@@ -36,14 +39,11 @@ const std::vector<Command>& All() {
 }
 
 std::string Dispatch(const std::string& line) {
-    std::istringstream stream(line);
-    std::string name;
-    stream >> name;
-    if (name.empty()) return "";
-
-    std::vector<std::string> args;
-    std::string arg;
-    while (stream >> arg) args.push_back(arg);
+    std::vector<std::string> parts;std::string parseError;
+    if(!CommandArgs::Parse(line,parts,parseError))return "Invalid arguments: "+parseError;
+    if(parts.empty())return "";
+    std::string name=parts.front();
+    std::vector<std::string> args(parts.begin()+1,parts.end());
 
     std::string wanted = Lower(name);
 
@@ -62,7 +62,13 @@ std::string Dispatch(const std::string& line) {
     if (!found) return "Unknown command '" + name + "'. Try 'help'.";
 
     try {
-        return matched.handler(args);
+        auto result=matched.handler(args);
+        if(wanted=="kick" || wanted=="ban" || wanted=="unban" || wanted=="give" || wanted=="broadcast") {
+            auto lower=Lower(result);
+            bool success=lower.rfind("kicked ",0)==0 || lower.rfind("banned ",0)==0 || lower.rfind("unbanned ",0)==0 || lower.rfind("gave ",0)==0 || lower.rfind("broadcast rpc invoked",0)==0;
+            Thc::Audit("rcon:"+wanted,wanted=="broadcast" || args.empty()?"":args[0],result,success);
+        }
+        return result;
     } catch (const std::exception& e) {
         return std::string("Command failed: ") + e.what();
     } catch (...) {

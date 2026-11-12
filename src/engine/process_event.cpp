@@ -2,7 +2,9 @@
 #include "dom_engine.h"
 #include "../utils/logger.h"
 #include "../utils/memory.h"
+#include "../utils/sync_queue.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
@@ -21,21 +23,14 @@ namespace GameThread {
 
 namespace {
 
-ProcessEventFn g_Original = nullptr;
-uintptr_t g_ProcessEvent = 0;
-int g_VTableIndex = -1;
-bool g_Ready = false;
+std::atomic<ProcessEventFn> g_Original{nullptr};
+std::atomic<uintptr_t> g_ProcessEvent{0};
+std::atomic<int> g_VTableIndex{-1};
+std::atomic<bool> g_Ready{false};
 std::string g_Status = "not initialised";
 
-std::mutex g_QueueMutex;
-std::condition_variable g_QueueSignal;
-
-struct Job {
-    const std::function<void()>* work;
-    bool done = false;
-};
-
-std::deque<Job*> g_Queue;
+SyncQueue g_Jobs;
+std::atomic<int64_t> g_LastPumpTicks{0};
 
 const char* kProcessEventSymbols[] = {
     "_ZN7UObject12ProcessEventEP9UFunctionPv",
@@ -155,36 +150,12 @@ uintptr_t FindBySymbol(std::string& outSource) {
 }
 
 void Drain() {
-    for (;;) {
-        Job* job = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(g_QueueMutex);
-            if (g_Queue.empty()) return;
-            job = g_Queue.front();
-            g_Queue.pop_front();
-        }
-
-        try {
-            (*job->work)();
-        } catch (...) {
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(g_QueueMutex);
-            job->done = true;
-        }
-        g_QueueSignal.notify_all();
-    }
+    g_LastPumpTicks=std::chrono::steady_clock::now().time_since_epoch().count();
+    g_Jobs.Drain();
 }
 
 void HookedProcessEvent(void* self, void* function, void* params) {
-    bool hasWork;
-    {
-        std::lock_guard<std::mutex> lock(g_QueueMutex);
-        hasWork = !g_Queue.empty();
-    }
-    if (hasWork) Drain();
-
+    Drain();
     g_Original(self, function, params);
 }
 
@@ -214,7 +185,7 @@ uintptr_t g_PumpFunction = 0;
 // UStruct::ChildProperties, Source: RSDWSDK/CppSDK/Assertions.inl
 constexpr uintptr_t kChildProperties = 0x50;
 
-bool g_LayoutReady = false;
+std::atomic<bool> g_LayoutReady{false};
 uintptr_t g_OffNode = 0;
 uintptr_t g_OffObject = 0;
 uintptr_t g_OffCode = 0;
@@ -321,10 +292,21 @@ void DeriveProcessEvent() {
     g_DeriveAttempted = true;
 
     uintptr_t marker = 0;
-    const uintptr_t* stack = &marker;
+    pthread_attr_t attributes;
+    void* stackBase = nullptr;
+    size_t stackSize = 0;
+    if (pthread_getattr_np(pthread_self(), &attributes) != 0) return;
+    int stackResult = pthread_attr_getstack(&attributes, &stackBase, &stackSize);
+    pthread_attr_destroy(&attributes);
+    if (stackResult != 0) return;
+    uintptr_t stackStart = (uintptr_t)&marker;
+    uintptr_t stackEnd = (uintptr_t)stackBase + stackSize;
+    if (stackStart < (uintptr_t)stackBase || stackStart >= stackEnd) return;
 
     for (int i = 0; i < 256; i++) {
-        uintptr_t value = stack[i];
+        uintptr_t slot = stackStart + (uintptr_t)i * sizeof(uintptr_t);
+        if (slot > stackEnd - sizeof(uintptr_t)) break;
+        uintptr_t value = Mem::ReadPtr(slot);
         if (!value || !Mem::InImage((void*)value)) continue;
 
         int index = -1;
@@ -345,7 +327,7 @@ void DeriveProcessEvent() {
 }
 
 pthread_t g_GameThread = 0;
-bool g_GameThreadKnown = false;
+std::atomic<bool> g_GameThreadKnown{false};
 
 void PumpThunk(void* context, void* frame, void* result) {
     if (!g_GameThreadKnown) {
@@ -355,12 +337,7 @@ void PumpThunk(void* context, void* frame, void* result) {
     DeriveProcessEvent();
     LearnFrameLayout(frame, context);
 
-    bool hasWork;
-    {
-        std::lock_guard<std::mutex> lock(g_QueueMutex);
-        hasWork = !g_Queue.empty();
-    }
-    if (hasWork) Drain();
+    Drain();
 
     if (g_PumpOriginal) g_PumpOriginal(context, frame, result);
 }
@@ -368,7 +345,7 @@ void PumpThunk(void* context, void* frame, void* result) {
 }
 
 bool InstallExecPump() {
-    if (g_Ready) return true;
+    if (g_PumpFunction) return true;
 
     DomEngine::Engine* engine = DomEngine::g_Engine;
     if (!engine || !engine->IsInitialized()) {
@@ -419,6 +396,7 @@ uintptr_t FrameCodeOffset() { return g_OffCode; }
 uintptr_t FrameLocalsOffset() { return g_OffLocals; }
 uintptr_t FramePropertyChainOffset() { return g_OffPropertyChain; }
 
+double PumpAgeSeconds(){const auto tick=g_LastPumpTicks.load();if(!tick)return -1;return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()-std::chrono::steady_clock::duration(tick)).count();}
 bool IsReady() { return g_Ready; }
 uintptr_t ProcessEventAddress() { return g_ProcessEvent; }
 const std::string& Status() { return g_Status; }
@@ -471,7 +449,7 @@ bool Initialize(uintptr_t moduleBase, uintptr_t moduleEnd) {
     }
 
     uintptr_t slotAddress = vtable + (uintptr_t)g_VTableIndex * sizeof(uintptr_t);
-    g_Original = (ProcessEventFn)g_ProcessEvent;
+    g_Original = (ProcessEventFn)g_ProcessEvent.load();
 
     long pageSize = sysconf(_SC_PAGESIZE);
     uintptr_t page = slotAddress & ~(uintptr_t)(pageSize - 1);
@@ -527,6 +505,8 @@ bool IsGameThread() {
     return g_GameThreadKnown && pthread_equal(pthread_self(), g_GameThread);
 }
 
+void StopJobs() { g_Jobs.Stop(); }
+
 bool RunSync(const std::function<void()>& work, int timeoutMs) {
     if (!g_Ready) return false;
 
@@ -534,30 +514,12 @@ bool RunSync(const std::function<void()>& work, int timeoutMs) {
         try {
             work();
         } catch (...) {
+            return false;
         }
         return true;
     }
 
-    Job job;
-    job.work = &work;
-
-    {
-        std::lock_guard<std::mutex> lock(g_QueueMutex);
-        g_Queue.push_back(&job);
-    }
-
-    std::unique_lock<std::mutex> lock(g_QueueMutex);
-    bool ran = g_QueueSignal.wait_for(lock, std::chrono::milliseconds(timeoutMs),
-                                      [&job]() { return job.done; });
-    if (!ran) {
-        for (auto it = g_Queue.begin(); it != g_Queue.end(); ++it) {
-            if (*it == &job) {
-                g_Queue.erase(it);
-                break;
-            }
-        }
-    }
-    return ran;
+    return g_Jobs.Run(work, timeoutMs);
 }
 
 }

@@ -1,4 +1,5 @@
 #include "dom_engine.h"
+#include "health_attributes.h"
 #include "../utils/logger.h"
 #include "../utils/memory.h"
 
@@ -80,16 +81,7 @@ void Engine::ReadHealthAndAttributes(PlayerInfo& info) const {
     ReadAttributeArrays(attributesComponent, Offsets::Attributes_SharedFloatAttributes,
                         Offsets::Attributes_SharedAttributeValues, true, info.attributes);
 
-    for (const AttributeInfo& attribute : info.attributes) {
-        if (attribute.name == "Health") {
-            info.health = attribute.value;
-            info.hasHealth = true;
-        } else if (attribute.name == "MaxHealth") {
-            info.maxHealth = attribute.value;
-            info.hasHealth = true;
-        }
-    }
-    info.isDead = info.hasHealth && info.health <= 0.0f;
+    ApplyHealthAttributes(info);
 }
 
 void Engine::ReadSkills(PlayerInfo& info) const {

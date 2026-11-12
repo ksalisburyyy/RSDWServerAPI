@@ -26,7 +26,8 @@ using EventListener = std::function<void(const PlayerEvent&)>;
 
 bool Initialize();
 bool IsHooked();
-const std::string& Status();
+std::string Status();
+bool CanBroadcast();
 
 void AddListener(Listener listener);
 void AddEventListener(EventListener listener);

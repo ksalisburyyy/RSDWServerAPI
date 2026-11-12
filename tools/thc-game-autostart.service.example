@@ -1,0 +1,15 @@
+[Unit]
+Description=Start Dragonwilds once when the user service manager boots
+Wants=thc-control.service
+After=thc-control.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/thc-management/thc_autostart.py --config %h/.config/thc-control.json
+TimeoutStartSec=150
+RemainAfterExit=yes
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
