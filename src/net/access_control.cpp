@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cstdio>
+#include <charconv>
 #include <cstdlib>
 
 namespace Net {
@@ -46,8 +47,8 @@ void IpFilter::Configure(const std::string& list) {
         size_t slash = entry.find('/');
         if (slash != std::string::npos) {
             address = entry.substr(0, slash);
-            bits = atoi(entry.c_str() + slash + 1);
-            if (bits < 0 || bits > 32) {
+            auto parsedBits=std::from_chars(entry.data()+slash+1,entry.data()+entry.size(),bits);
+            if (parsedBits.ec!=std::errc{} || parsedBits.ptr!=entry.data()+entry.size() || bits < 0 || bits > 32) {
                 m_Rejected.push_back(entry);
                 continue;
             }
@@ -62,10 +63,11 @@ void IpFilter::Configure(const std::string& list) {
         uint32_t mask = (bits == 0) ? 0u : (0xFFFFFFFFu << (32 - bits));
         m_Rules.push_back({ntohl(parsed.s_addr) & mask, mask});
     }
+    m_DenyAll=m_Rules.empty() && !m_Rejected.empty();
 }
 
 bool IpFilter::Allows(uint32_t addr) const {
-    if (m_Rules.empty()) return true;
+    if (m_Rules.empty()) return !m_DenyAll;
     for (const Rule& rule : m_Rules) {
         if ((addr & rule.mask) == rule.network) return true;
     }

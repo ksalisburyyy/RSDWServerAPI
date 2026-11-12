@@ -1,0 +1,11 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync('src/api/dashboard.h','utf8');const source=html.split('// MAP_MODEL_BEGIN')[1].split('// MAP_MODEL_END')[0];const model=vm.runInNewContext(source+';MapModel;');
+const bounds={minX:0,maxX:100,minY:0,maxY:100};assert.deepEqual({...model.project(bounds,0,0)},{u:0,v:1});assert.deepEqual({...model.project(bounds,100,100)},{u:1,v:0});
+const config={anchors:[{x:0,y:0,u:.2,v:.1},{x:1000,y:0,u:.2,v:.9},{x:0,y:1000,u:.8,v:.1}]};
+const projected=model.project(config,250,500);assert(Math.abs(projected.u-.5)<1e-10 && Math.abs(projected.v-.3)<1e-10);
+const inverse=model.unproject(config,.5,.3);assert(Math.abs(inverse.x-250)<1e-9 && Math.abs(inverse.y-500)<1e-9);
+assert.throws(()=>model.matrix({minX:1,maxX:1,minY:0,maxY:1}),/not ready/);
+assert.throws(()=>model.fit([{x:0,y:0,u:0,v:0},{x:1,y:1,u:.2,v:.3},{x:2,y:2,u:.4,v:.7}]),/one line/);
+assert.throws(()=>model.fit([{x:0,y:0,u:0,v:0},{x:1,y:0,u:.2,v:.2},{x:0,y:1,u:.4,v:.4}]),/separated/);
+assert.throws(()=>model.unproject(config,-.1,.5),/inside/);assert.throws(()=>model.project(config,Infinity,0),/Invalid/);
+console.log('PASS: independent landmark rotation/scale, inverse clicks, known bounds, singular/invalid calibration and out-of-image refusal');

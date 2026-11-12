@@ -34,6 +34,7 @@ inline HttpResponse Ok(const std::string& message) {
 void RegisterSystem(HttpServer& server);
 void RegisterPlayers(HttpServer& server);
 
+void RegisterThc(HttpServer& server);
 void RegisterAll(HttpServer& server);
 
 }

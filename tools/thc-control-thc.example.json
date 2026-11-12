@@ -1,0 +1,21 @@
+{
+  "server_root": "/home/thc/dragonwildsserver",
+  "save_directory": "RSDragonwilds/Saved/SaveGames",
+  "backup_directory": "/home/thc/thc-backups",
+  "log_file": "RSDragonwilds/Saved/Logs/RSDragonwilds.log",
+  "settings_file": "RSDragonwilds/Saved/Config/LinuxServer/DedicatedServer.ini",
+  "socket": "/home/thc/dragonwildsserver/RSDragonwilds/Binaries/Linux/rsdwapi/thc/control.sock",
+  "mode": "owned_process",
+  "adopt_existing": true,
+  "command": [
+    "/bin/bash",
+    "/home/thc/dragonwildsserver/STARTSERVER.sh"
+  ],
+  "service_unit": "",
+  "game_executable": "/home/thc/dragonwildsserver/RSDragonwilds/Binaries/Linux/RSDragonwildsServer-Linux-Shipping",
+  "max_backup_bytes": 2147483648,
+  "http_bind": "127.0.0.1",
+  "http_port": 5001,
+  "api_config": "RSDragonwilds/Binaries/Linux/rsdwapi/settings.ini",
+  "dashboard_file": "/home/thc/thc-management/dashboard.html"
+}

@@ -78,7 +78,7 @@ void RegisterPlayers(HttpServer& server) {
 
         std::string error;
         if (!DomChat::Broadcast(line, error)) return Error(500, error);
-        return Ok("broadcast sent");
+        return Ok("broadcast RPC invoked; client display is not acknowledged");
     });
 
     server.Post("/api/give", [](const HttpRequest& req) -> HttpResponse {
@@ -92,7 +92,9 @@ void RegisterPlayers(HttpServer& server) {
             return Error(400, "item required");
         }
         int count = 1;
-        Json::GetInt(req.body, "count", count);
+        auto body=Json::Object(req.body);
+        if(body.contains("count") && !Json::GetInt(req.body,"count",count))return Error(400,"count must be an integer");
+        if(count<1 || count>100000)return Error(400,"count must be between 1 and 100000");
 
         std::string message;
         if (!DomItems::GiveItem(player, item, count, message)) return Error(500, message);
@@ -147,6 +149,7 @@ void RegisterPlayers(HttpServer& server) {
     });
 
     server.Get("/api/bans", [](const HttpRequest&) -> HttpResponse {
+        if(!DomBans::IsReady())return Error(503,"Ban store unavailable; original file preserved");
         std::ostringstream oss;
         oss << "{\"bans\":[";
         bool first = true;

@@ -1,6 +1,33 @@
-dist/
-build/
-.xmake/
-src/**/*.o
-src/*.o
-RSDWSDK/
+# Build output and local dependencies
+/dist/
+/build/
+/.xmake/
+/RSDWSDK/
+*.o
+*.d
+*.so
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+# Local deployment credentials and runtime data (fixtures remain tracked)
+.env
+.env.*
+!.env.example
+/settings.ini
+/access.json
+/thc-control.json
+/discord-webhooks.private.json
+/rsdwapi/
+/RSDragonwilds/
+/Engine/
+/steamapps/
+/Saved/
+/backups/
+/quarantine/
+*.sock
+*.pem
+*.key
+# Release archives and rollback copies belong outside the source tree
+*.zip
+*.before-*

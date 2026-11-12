@@ -18,6 +18,7 @@ bool g_RconRunning = false;
 int g_RconPort = 0;
 
 std::atomic<bool> g_ShuttingDown{false};
+std::atomic<bool> g_InternalFailure{false};
 
 }
 
@@ -49,7 +50,10 @@ bool RconEnabled() { return g_RconEnabled; }
 bool RconRunning() { return g_RconRunning; }
 int RconPort() { return g_RconPort; }
 
-const char* Version() { return "0.1.1"; }
+const char* Version() { return "0.5.0-thc.8"; }
+
+void MarkFailure(){g_InternalFailure=true;}
+bool HasFailure(){return g_InternalFailure;}
 
 void BeginShutdown() { g_ShuttingDown = true; }
 bool ShuttingDown() { return g_ShuttingDown; }

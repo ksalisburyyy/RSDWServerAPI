@@ -1,6 +1,9 @@
 #include "api_routes.h"
 
 #include "../runtime.h"
+#include "../engine/chat.h"
+#include "../engine/bans.h"
+#include "../engine/process_event.h"
 
 #include <cstdio>
 #include <sstream>
@@ -20,10 +23,14 @@ void RegisterSystem(HttpServer& server) {
 
         std::ostringstream oss;
         oss << "{"
-            << "\"status\":\"" << (ready ? "healthy" : "starting") << "\","
+            << "\"status\":\"" << (Runtime::HasFailure() ? "degraded" : (ready ? "healthy" : "starting")) << "\","
             << "\"version\":\"" << Runtime::Version() << "\","
             << "\"uptimeSeconds\":" << uptime << ","
-            << "\"engineReady\":" << (ready ? "true" : "false")
+            << "\"engineReady\":" << (ready ? "true" : "false") << ","
+            << "\"banStoreReady\":" << (DomBans::IsReady() ? "true" : "false") << ","
+            << "\"chatHooked\":" << (DomChat::IsHooked() ? "true" : "false") << ","
+            << "\"broadcastReady\":" << (DomChat::CanBroadcast() ? "true" : "false") << ","
+            << "\"nativeCallsReady\":" << (GameThread::IsReady() && GameThread::FrameLayoutReady() ? "true" : "false")
             << "}";
         return JsonResponse(oss.str());
     });

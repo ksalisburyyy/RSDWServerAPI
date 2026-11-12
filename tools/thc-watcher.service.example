@@ -1,0 +1,16 @@
+[Unit]
+Description=THC local world availability watcher
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/dragonwildsserver/rsdwapi/thc-watcher.env
+WorkingDirectory=%h/dragonwildsserver/rsdwapi
+ExecStart=/usr/bin/python3 %h/dragonwildsserver/rsdwapi/thc_watch.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

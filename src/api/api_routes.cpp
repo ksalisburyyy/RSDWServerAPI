@@ -5,6 +5,7 @@ namespace ApiRoutes {
 void RegisterAll(HttpServer& server) {
     RegisterSystem(server);
     RegisterPlayers(server);
+    RegisterThc(server);
 }
 
 }

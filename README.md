@@ -1,309 +1,93 @@
-# RSDWServerAPI
+# THC Management System — 0.5.0-thc.8
 
-A server management API for **RuneScape: Dragonwilds** dedicated servers on Linux.
+Custom Linux RuneScape: Dragonwilds management system, extending RSDWServerAPI
+commit `994a72092f77e9851797bbd6206c80a3ebb28e5f`. Current source was recovered
+from the matching owner release archive; see [PROVENANCE.md](PROVENANCE.md).
+Keep [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-It adds a REST API and a Source RCON listener to a running server, so you can see who is
-connected, read their live stats, and kick them remotely - from a panel, a script, a
-Discord bot, or anything else that speaks HTTP.
+## Components and capabilities
 
-## Features
+- C++17 `LD_PRELOAD` library (`librsdwapi.so`): native HTTP API, optional Source
+  RCON, player data, game admin commands, save completion observation, persistent
+  character/event ledger, death telemetry and Discord queues.
+- Independent Python standard-library controller: authenticated dashboard/proxy,
+  private Unix control socket, configured game start/stop/restart, offline save
+  backup/restore, narrow INI edits, shared map and fixed SteamCMD update jobs.
+- Independent watcher: current invite/process status, severe crash evidence,
+  private admin audit delivery, retry queues and 45-minute online/invite repost.
+- Dashboard: embedded in `src/api/dashboard.h`; artwork in `assets/`. File-backed
+  JSON/INI/NDJSON storage and polling; no SQL, WebSocket or SSE dependency.
 
-- **Live player data** - names, character names, SteamID64, character GUID, ping,
-  position, rotation, velocity, health, sustenance, hydration, skills and every float
-  attribute the character carries.
-- **Remote kick** through the game's own kick function, persistent until the server
-  restarts, exactly like an in-game kick.
-- **Broadcast** to all players through the game's own chat.
-- **Give items** through the game's own give function.
-- **Bans** that survive restarts, with offline players bannable by SteamID64.
-- **In-game admin commands** - `/kick`, `/ban`, `/unban`, `/give`, gated by the game's
-  own owner and admin list.
-- **Discord relay** - in-game chat and player deaths posted to a webhook.
-- **Two independent listeners** - REST and Source RCON, each switchable on its own.
-- **Access control on both** - bearer token or RCON password, IP whitelisting, per-address
-  rate limiting and automatic blocking after repeated failed logins.
-- **Offsets validated at runtime.** Every discovery step is checked and cross-checked
-  before anything is read, and a mismatch after a game patch degrades to a `503` and a log
-  line rather than serving nonsense.
+Version .8 preserves verified credential labels/IDs/roles in audits, snapshots
+async job identity, ignores public actor claims, and deduplicates native/proxy
+Discord audit delivery without dropping the private proxy record. Named keys
+identify the credential used, not a person independently of its possession.
+
+The game owns `/help`, `/kick`, `/ban`, `/unban`, `/give` authorization. Commands
+support quoted arguments; give quantities are 1..100000 and ambiguous ban/unban
+names are refused. Five Discord lanes cover chat, kills/deaths, player activity,
+status and admin actions. Routine save notifications remain enabled when configured.
+Weather-cache warnings and ordinary Error/Warning lines are excluded from crash posts.
+
+See [THC_API.md](THC_API.md), [CONTROL_SERVICE.md](CONTROL_SERVICE.md),
+[MAP_SETUP.md](MAP_SETUP.md), [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the historical
+[THC_CHANGES.md](THC_CHANGES.md). Earlier change notes describe their release-time
+status; the current limits and provenance documents take precedence.
 
 ## Build
 
-Docker is the only requirement. The build container is Debian bookworm, matching the image
-the dedicated server runs in, so the result never asks the host for a newer glibc than it
-has. `libstdc++` and `libgcc` are linked statically.
+Use Debian 12 / GCC 12 with static libstdc++ and libgcc and maximum GLIBC 2.36.
+The preserved `Dockerfile.build` and `Makefile` provide this compatibility:
 
 ```bash
-./build.sh
+bash build.sh -j4
 ```
 
-Output: `dist/librsdwapi.so`.
+Output: `dist/librsdwapi.so`. A host `make` is suitable only when its compiler and
+sysroot meet the same compatibility target. Do not deploy a library built on an
+arbitrary newer host. Verify ELF dependencies and symbol versions before release.
 
-A bare `make` or `xmake` also works if you already have a Linux toolchain.
+## Installation and configuration
 
-## Install
-
-Copy `dist/librsdwapi.so` to the server and prefix the startup command:
+Plan installation separately from source synchronization. Back up the current
+library, management files and private configuration. Stop the game before native
+library replacement. Never extract source or build output over the live game tree.
+A typical launch uses:
 
 ```bash
-LD_PRELOAD=./librsdwapi.so ./RSDragonwilds/Binaries/Linux/RSDragonwildsServer-Linux-Shipping -log -port=7777
+LD_PRELOAD=/path/to/librsdwapi.so /path/to/RSDragonwildsServer-Linux-Shipping -log
 ```
 
-On Pterodactyl or Pelican, put the `.so` in the server root and set the startup to:
+Native settings are under `RSDragonwilds/Binaries/Linux/rsdwapi/settings.ini` by
+default, or the `RSDWAPI_DIR` directory. Keep the existing settings and `thc/access.json`
+to preserve credentials. API requests use `Authorization: Bearer <token>`; keep
+listeners on localhost behind the authenticated controller/TLS proxy. RCON is optional.
+Do not commit live INI, access files, webhooks, saves, logs or private TLS/SSH keys.
 
-```
-LD_PRELOAD=/home/container/librsdwapi.so ./RSDragonwilds/Binaries/Linux/RSDragonwildsServer-Linux-Shipping -log -port={{SERVER_PORT}} -ini:Game:[/Script/Engine.GameSession]:MaxPlayers={{MAX_PLAYERS}}
-```
+Review examples under `tools/` for controller configuration and user services.
+Deployment copies the controller/watcher beside `dashboard.html` and both artwork
+files; the controller serves those images at `/assets/`. Generate dashboard HTML
+from the raw string in `src/api/dashboard.h`; it is not a second maintained source.
+`tools/install_death_ledger.py` is the matching release-package installer, not a
+standalone source-checkout deployment command; it requires verified package assets
+and manifest. No installer should run during repository synchronization.
 
-Allocate the API port (and the RCON port, if you turn it on) in the panel.
-
-## Configuration
-
-On first run the mod writes `rsdwapi/settings.ini` beside the server binary, which on a
-stock install is `RSDragonwilds/Binaries/Linux/rsdwapi/`. Set `RSDWAPI_DIR` to put it
-somewhere easier to reach - on a panel, `RSDWAPI_DIR=/home/container/rsdwapi`.
-
-A bearer token and an RCON password are generated on that first run and never regenerated
-afterwards, so an empty value stays empty.
-
-**The REST API is on by default. RCON is off by default** - set `Enabled=true` under
-`[RCON]` to use it; the password is already generated and waiting.
-
-```ini
-[General]
-EnableLogging=true
-VerboseLogging=true
-
-[API]
-Enabled=true
-BindAddress=0.0.0.0
-Port=8080
-BearerToken=<generated>
-IPWhitelist=
-
-[RCON]
-Enabled=false
-BindAddress=0.0.0.0
-Port=27020
-Password=<generated>
-IPWhitelist=
-CommandsPerMinute=60
-CommandBurst=15
-MaxFailedAuth=5
-FailWindowSeconds=60
-BanSeconds=300
-MaxConnections=16
-
-[Discord]
-Enabled=false
-WebhookUrl=
-DeathWebhookUrl=
-Username=Dragonwilds
-```
-
-Set `Enabled=true` and paste a webhook URL to relay in-game chat to a Discord channel.
-Player deaths go to `DeathWebhookUrl`, or to `WebhookUrl` when that is left empty.
-
-Bans are kept in `rsdwapi/bans.json` beside the config and survive restarts.
-
-`IPWhitelist` takes a comma separated list of addresses and CIDR blocks
-(`127.0.0.1,10.0.0.0/8`). Empty allows everyone. It applies to both listeners
-independently, and an unparseable entry is logged and ignored rather than silently locking
-everyone out.
-
-Clearing `BearerToken` disables REST authentication entirely. That is deliberate and it
-sticks, but bind to `127.0.0.1` or set an `IPWhitelist` if you do it. A warning is logged
-at startup either way.
-
-An empty RCON `Password` keeps RCON from starting at all, by design.
-
-Logs go to `<data dir>/logs/api.log`, rotated on each boot with ten kept, and mirrored to
-the server's stdout so a panel console shows them.
-
-## REST endpoints
-
-Every request needs `Authorization: Bearer <token>` unless `BearerToken` is empty.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/hello` | Load check |
-| GET | `/api/health` | Mod status and uptime |
-| GET | `/api/players` | Every connected player |
-| POST | `/api/kick` | Disconnect a player |
-| POST | `/api/broadcast` | Send a message to every player |
-| POST | `/api/give` | Give an item to a player |
-| GET | `/api/items` | List loaded items, `?search=` to filter |
-| POST | `/api/ban` | Ban a player |
-| POST | `/api/unban` | Remove a ban |
-| GET | `/api/bans` | List bans |
-
-### GET /api/players
-
-Accepts `?name=`, `?characterName=`, `?netId=` and `?characterGuid=` to narrow the list.
+## Validation
 
 ```bash
-curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/players
+bash tests/run.sh                     # C++ fixture regressions; needs compiler
+python3 tests/control_test.py         # temporary saves/config, fake game and API
+python3 tests/error_watch_test.py      # fixture logs and fake notification transport
+node tests/map_model_test.js
 ```
 
-```json
-{
-  "count": 1,
-  "players": [{
-    "name": "ExamplePlayer",
-    "characterName": "Adventurer",
-    "playerId": 256,
-    "uniqueNetId": "76561190000000000",
-    "uniqueNetIdSource": "net-id-string",
-    "characterGuid": "00000000000000000000000000000000",
-    "platform": "WIN",
-    "pingMs": 60,
-    "score": 0.0,
-    "startTime": 80,
-    "isSpectator": false, "isBot": false, "isInactive": false,
-    "spawned": true,
-    "pawnClass": "BP_PlayerCharacter_C",
-    "color": { "hex": "D47247FF", "r": 0.658, "g": 0.168, "b": 0.063, "a": 1.0 },
-    "location": { "x": 10360.0, "y": 186410.0, "z": -3070.0 },
-    "rotation": { "pitch": 0.0, "yaw": 128.2, "roll": 0.0 },
-    "velocity": { "x": 0.0, "y": 0.0, "z": 0.0 },
-    "movementMode": 1,
-    "health":     { "current": 100.0, "max": 100.0, "canDie": true, "isDead": false },
-    "sustenance": { "current": 72.0, "max": 100.0 },
-    "hydration":  { "current": 65.0, "max": 100.0 },
-    "attributes": [{ "name": "Health", "value": 100.0, "baseValue": 100.0, "shared": false }],
-    "skills":     [{ "skill": "SKILL_Woodcutting", "currentXP": 4210 }],
-    "pointers": { "playerState": "0x...", "pawn": "0x...", "controller": "0x..." }
-  }]
-}
-```
+Other Python tests under `tests/` cover update interlocks, process adoption,
+installers and watcher behavior. `smoke.py`, `named_audit_e2e.py` and
+`death_installer_test.py` additionally require `dist/librsdwapi.so`; use a compatible
+build and fixture host from `tests/run.sh`. They use disposable state/fake transport,
+not production. Browser tests require Playwright plus Chromium at `/usr/bin/chromium`.
+See [VALIDATION.md](VALIDATION.md) for this synchronization's actual results.
 
-Health and max health come from the character's attributes component, not from
-`UHealthComponent`'s own fields - on a player those are always zero, because
-`UPlayerHealthComponent` sources both from attributes.
-
-### POST /api/kick
-
-`player` accepts a SteamID64, player id, character GUID, character name or display name.
-They are matched in that order, most stable first.
-
-```
-curl -X POST http://localhost:8080/api/kick -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d "{\"player\":\"76561190000000000\",\"reason\":\"Kicked by an administrator\"}"
-```
-
-A kick holds until the server restarts. The kicked player is remembered and removed again
-if they reconnect.
-
-### POST /api/broadcast
-
-Sends a line to every connected player's chat box.
-
-```
-curl -X POST http://localhost:8080/api/broadcast -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d "{\"message\":\"Restarting in 5 minutes\"}"
-```
-
-`sender` is optional and defaults to `Server`, giving `[Server] Restarting in 5 minutes`.
-
-The game has no server identity in chat, so a broadcast is delivered under the receiving
-player's own name. Everyone sees the `[Server]` prefix, but it appears as though they sent
-it themselves.
-
-### POST /api/give
-
-```
-curl -X POST http://localhost:8080/api/give -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d "{\"player\":\"76561190000000000\",\"item\":\"IronBar\",\"count\":10}"
-```
-
-`item` matches the full asset name (`ITEM_Resources_IronBar`), the name without the `ITEM_`
-prefix, or a unique partial like `ironbar`. Only items currently loaded on the server can be
-given; `GET /api/items` shows what is available right now. `count` defaults to 1.
-
-### POST /api/ban
-
-```
-curl -X POST http://localhost:8080/api/ban -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d "{\"player\":\"76561190000000000\",\"reason\":\"Griefing\"}"
-```
-
-Kicks the player if online and adds them to `bans.json`. They are removed again whenever
-they reconnect. Offline players can be banned by SteamID64. `POST /api/unban` takes the
-same `player` field.
-
-### GET /api/health
-
-Deliberately minimal, because authentication can be turned off and this therefore has to be
-safe to serve to anyone. No ports, no owner id, no server GUID, no memory addresses.
-
-```json
-{"status":"healthy","version":"0.1.0","uptimeSeconds":41.2,"engineReady":true}
-```
-
-`status` is `starting` until the world has loaded. Engine discovery detail goes to the log
-at startup and to the authenticated RCON `status` command.
-
-## RCON
-
-Standard Valve Source RCON, so `mcrcon`, `rcon-cli` and panel consoles all work. Off by
-default.
-
-```bash
-mcrcon -H 127.0.0.1 -P 27020 -p PASSWORD players
-```
-
-| Command | Description |
-|---------|-------------|
-| `help` | List commands |
-| `health` | Mod and engine readiness in one line |
-| `status` | Server identity, world and engine discovery |
-| `players [json]` | Player table, or the API payload |
-| `playercount` | Number of connected players |
-| `player <name>` | Everything known about one player, as JSON |
-| `kick <player> [reason]` | Disconnect a player |
-| `broadcast <message>` | Send a message to every player |
-| `give <player> <item> [count]` | Give an item to a player |
-| `items [search]` | List loaded items |
-| `ban <player> [reason]` | Ban a player, offline players by SteamID64 |
-| `unban <player or SteamID64>` | Remove a ban |
-| `bans` | List bans |
-
-## In-game commands
-
-Admins can run these from chat. Admin status comes from the game's own owner and admin
-list, so anyone who has entered the admin password in the Server Management screen
-qualifies. Replies go only to the sender, and the command line itself is never shown to
-other players.
-
-| Command | Description |
-|---------|-------------|
-| `/kick <player> [reason]` | Disconnect a player |
-| `/ban <player> [reason]` | Ban a player |
-| `/unban <player or SteamID64>` | Remove a ban |
-| `/give <player> <item> [count]` | Give an item to a player |
-| `/help` | List commands |
-
-## Discord
-
-With `[Discord]` enabled, every chat message is relayed to `WebhookUrl` as
-`**Name**: message`, and player deaths are posted to `DeathWebhookUrl` as
-`:skull: **Name** died at x, y, z`. Leave `DeathWebhookUrl` empty to send both to the same
-channel.
-Messages are batched and sent at most once per second, so a busy server stays inside
-Discord's rate limits.
-
-Rate limiting is a per-address token bucket: `CommandsPerMinute` is the sustained rate,
-`CommandBurst` is how much can be spent at once. Separately, `MaxFailedAuth` failed logins
-inside `FailWindowSeconds` refuse that address for `BanSeconds`, enforced at `accept`
-before the password is read.
-
-## SDK
-
-The engine layer is driven by a Dumper-7 dump of the server binary, which is not included
-in this repository. Generate your own and place it at `RSDWSDK/`. Every offset the mod uses
-carries a `// Source:` comment naming the file it came from, so they can be re-verified
-against a fresh dump after a game patch.
-
-## License
-
-Released under the MIT License. See [LICENSE](LICENSE) for the full text.
-
-This software is provided as is, without warranty of any kind. Use it at your own risk.
-
-If you use this code in your own project, please provide credit and keep a link back to
-this repository.
+Release binaries and ZIP packages belong in versioned release assets, with matching
+source, manifests and checksums, rather than source commits. This synchronization
+does not deploy or publish a newly built binary.

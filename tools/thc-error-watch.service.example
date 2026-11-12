@@ -1,0 +1,16 @@
+[Unit]
+Description=THC game/API error and process availability notifications
+Wants=thc-control.service
+After=thc-control.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/thc-management
+ExecStart=/usr/bin/python3 %h/thc-management/thc_error_watch.py --config %h/.config/thc-control.json
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

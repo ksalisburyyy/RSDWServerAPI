@@ -88,8 +88,8 @@ bool Server::Start(const RconConfig& config) {
     if (m_Config.bindAddress.empty() || m_Config.bindAddress == "0.0.0.0") {
         serverAddr.sin_addr.s_addr = INADDR_ANY;
     } else if (inet_pton(AF_INET, m_Config.bindAddress.c_str(), &serverAddr.sin_addr) != 1) {
-        LogMessage("RCON: invalid BindAddress '" + m_Config.bindAddress + "', falling back to 0.0.0.0");
-        serverAddr.sin_addr.s_addr = INADDR_ANY;
+        LogMessage("RCON: invalid BindAddress; refusing to bind");
+        close(m_ListenSocket);m_ListenSocket=-1;return false;
     }
 
     if (bind(m_ListenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {

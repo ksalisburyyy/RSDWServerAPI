@@ -12,6 +12,7 @@ struct BanEntry {
 };
 
 void Load();
+bool IsReady();
 std::vector<BanEntry> All();
 bool IsBanned(const std::string& netId);
 

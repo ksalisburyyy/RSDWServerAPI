@@ -1,0 +1,17 @@
+[Unit]
+Description=THC local server control service
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/thc-control.env
+ExecStart=/usr/bin/python3 %h/thc-management/thc_control.py --config %h/.config/thc-control.json
+Restart=on-failure
+RestartSec=10
+UMask=0077
+# Restarting the controller must not terminate its game child.
+KillMode=process
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

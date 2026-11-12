@@ -8,6 +8,17 @@ LDFLAGS  ?= -shared -pthread -ldl -static-libstdc++ -static-libgcc
 
 SRC := src/rsdwapi.cpp \
        src/runtime.cpp \
+       src/thc/store.cpp \
+       src/thc/metrics.cpp \
+       src/thc/control.cpp \
+       src/thc/access.cpp \
+       src/engine/administration.cpp \
+       src/engine/world_save.cpp \
+       src/thc/service.cpp \
+       src/thc/combat.cpp \
+       src/thc/death_telemetry.cpp \
+       src/discord/delivery.cpp \
+       src/api/thc_routes.cpp \
        src/api/api_routes.cpp \
        src/api/system_routes.cpp \
        src/api/player_routes.cpp \
@@ -15,6 +26,7 @@ SRC := src/rsdwapi.cpp \
        src/engine/engine_core.cpp \
        src/engine/uobject.cpp \
        src/engine/players.cpp \
+       src/engine/function_lookup.cpp \
        src/engine/kick.cpp \
        src/engine/chat.cpp \
        src/engine/items.cpp \
@@ -32,6 +44,10 @@ SRC := src/rsdwapi.cpp \
        src/utils/memory.cpp
 
 OBJ := $(SRC:.cpp=.o)
+DEP := $(OBJ:.o=.d)
+
+-include $(DEP)
+.DEFAULT_GOAL := all
 OUT := dist/librsdwapi.so
 
 all: $(OUT)
@@ -41,9 +57,9 @@ $(OUT): $(OBJ)
 	$(CXX) $(OBJ) -o $@ $(LDFLAGS)
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(OUT)
+	rm -f $(OBJ) $(DEP) $(OUT)
 
 .PHONY: all clean

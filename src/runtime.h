@@ -19,6 +19,8 @@ int RconPort();
 
 const char* Version();
 
+void MarkFailure();
+bool HasFailure();
 void BeginShutdown();
 bool ShuttingDown();
 

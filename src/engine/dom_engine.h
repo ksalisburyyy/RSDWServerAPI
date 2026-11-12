@@ -310,13 +310,6 @@ public:
                     std::string& outError) const;
     uintptr_t FindFunction(const char* className, const char* functionName) const;
 
-    void RememberKick(const std::string& netId, const std::string& name,
-                      const std::string& reason) const;
-    bool IsKicked(const std::string& netId) const;
-    std::vector<std::string> KickedNetIds() const;
-    bool ClearKick(const std::string& netId) const;
-    void EnforceKicks() const;
-
     ServerInfo GetServerInfo() const;
     DiscoveryInfo GetDiscoveryInfo() const;
 };

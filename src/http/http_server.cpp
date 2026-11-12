@@ -3,6 +3,12 @@
 #include "../utils/logger.h"
 
 #include <arpa/inet.h>
+#include <algorithm>
+#include <charconv>
+#include "../thc/service.h"
+#include "../utils/json.h"
+#include "../thc/access.h"
+#include "../thc/http_audit.h"
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
@@ -50,8 +56,8 @@ bool HttpServer::Start(int port, const std::string& bindAddress) {
     if (bindAddress.empty() || bindAddress == "0.0.0.0") {
         serverAddr.sin_addr.s_addr = INADDR_ANY;
     } else if (inet_pton(AF_INET, bindAddress.c_str(), &serverAddr.sin_addr) != 1) {
-        LogMessage("HTTP: Invalid BindAddress '" + bindAddress + "', falling back to 0.0.0.0");
-        serverAddr.sin_addr.s_addr = INADDR_ANY;
+        LogMessage("HTTP: invalid BindAddress; refusing to bind");
+        close(listenSocket);listenSocket=-1;return false;
     }
 
     if (bind(listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
@@ -128,6 +134,10 @@ void HttpServer::ListenerLoop() {
             continue;
         }
 
+        if (activeClients.load() >= 32) {
+            close(clientSocket);
+            continue;
+        }
         activeClients++;
         std::thread([this, clientSocket]() {
             HandleClient(clientSocket);
@@ -138,14 +148,15 @@ void HttpServer::ListenerLoop() {
 
 std::string HttpServer::ParseRequest(int clientSocket, HttpRequest& req) {
     char buf[8192];
-    ssize_t received = recv(clientSocket, buf, sizeof(buf) - 1, 0);
-    if (received <= 0) return "recv failed";
-
-    std::string rawRequest(buf, (size_t)received);
-
-    size_t headerEnd = rawRequest.find("\r\n\r\n");
-    if (headerEnd == std::string::npos) return "incomplete headers";
-
+    std::string rawRequest;
+    size_t headerEnd=std::string::npos;
+    while ((headerEnd=rawRequest.find("\r\n\r\n")) == std::string::npos) {
+        ssize_t received=recv(clientSocket,buf,sizeof(buf),0);
+        if(received<=0)return "incomplete headers";
+        rawRequest.append(buf,(size_t)received);
+        if(rawRequest.size()>16*1024 && rawRequest.find("\r\n\r\n") == std::string::npos)return "headers too large";
+    }
+    if(headerEnd>16*1024)return "headers too large";
     std::string headers = rawRequest.substr(0, headerEnd);
     std::string body = rawRequest.substr(headerEnd + 4);
 
@@ -166,6 +177,8 @@ std::string HttpServer::ParseRequest(int clientSocket, HttpRequest& req) {
         std::string key = headerLine.substr(0, colon);
         std::string val = headerLine.substr(colon + 1);
         while (!val.empty() && val[0] == ' ') val.erase(0, 1);
+        std::transform(key.begin(),key.end(),key.begin(),[](unsigned char c){return (char)tolower(c);});
+        if(req.headers.count(key))return "duplicate header";
         req.headers[key] = val;
     }
 
@@ -174,20 +187,19 @@ std::string HttpServer::ParseRequest(int clientSocket, HttpRequest& req) {
     ParseQuery(fullPath, pathOnly, req.query);
     req.path = pathOnly;
 
-    auto it = req.headers.find("Content-Length");
-    if (it != req.headers.end()) {
-        long contentLength = atol(it->second.c_str());
-        if (contentLength > 0 && contentLength < 8 * 1024 * 1024) {
-            while ((long)body.length() < contentLength) {
-                long remaining = contentLength - (long)body.length();
-                size_t toRead = remaining < (long)sizeof(buf) ? (size_t)remaining : sizeof(buf);
-                received = recv(clientSocket, buf, toRead, 0);
-                if (received <= 0) break;
-                body.append(buf, (size_t)received);
-            }
-        }
+    if(req.headers.count("transfer-encoding"))return "transfer encoding unsupported";
+    size_t length=0;
+    auto it=req.headers.find("content-length");
+    if(it!=req.headers.end()) {
+        auto parsed=std::from_chars(it->second.data(),it->second.data()+it->second.size(),length);
+        if(parsed.ec!=std::errc{} || parsed.ptr!=it->second.data()+it->second.size() || length>65536)return "invalid content length";
     }
-
+    while(body.size()<length) {
+        ssize_t received=recv(clientSocket,buf,std::min(sizeof(buf),length-body.size()),0);
+        if(received<=0)return "incomplete body";
+        body.append(buf,(size_t)received);
+    }
+    body.resize(length);
     req.body = body;
     return "";
 }
@@ -247,6 +259,8 @@ void HttpServer::SendResponse(int clientSocket, const HttpResponse& resp) {
         case 201: statusText = "Created"; break;
         case 400: statusText = "Bad Request"; break;
         case 401: statusText = "Unauthorized"; break;
+        case 403: statusText = "Forbidden"; break;
+        case 409: statusText = "Conflict"; break;
         case 404: statusText = "Not Found"; break;
         case 405: statusText = "Method Not Allowed"; break;
         case 500: statusText = "Internal Server Error"; break;
@@ -256,6 +270,7 @@ void HttpServer::SendResponse(int clientSocket, const HttpResponse& resp) {
 
     std::ostringstream oss;
     oss << "HTTP/1.1 " << resp.status << " " << statusText << "\r\n";
+    if(resp.auditRecorded)oss << "X-THC-Audit-Queued: 1\r\n";
     oss << "Content-Type: " << resp.contentType << "\r\n";
     oss << "Content-Length: " << resp.body.length() << "\r\n";
     oss << "Access-Control-Allow-Origin: *\r\n";
@@ -284,6 +299,8 @@ void HttpServer::HandleClient(int clientSocket) {
     HttpRequest req;
     std::string error = ParseRequest(clientSocket, req);
     if (!error.empty()) {
+        HttpResponse bad(400);bad.body=R"({"error":"Malformed or oversized HTTP request"})";
+        SendResponse(clientSocket,bad);
         close(clientSocket);
         return;
     }
@@ -294,49 +311,55 @@ void HttpServer::HandleClient(int clientSocket) {
         return;
     }
 
-    if (!g_Config.rest.bearerToken.empty()) {
-        auto authIt = req.headers.find("Authorization");
-        bool authorized = false;
-        if (authIt != req.headers.end()) {
-            const std::string& authHeader = authIt->second;
-            const std::string prefix = "Bearer ";
-            if (authHeader.size() > prefix.size() &&
-                authHeader.compare(0, prefix.size(), prefix) == 0) {
-                if (authHeader.substr(prefix.size()) == g_Config.rest.bearerToken) authorized = true;
-            }
+    auto audit=[&](HttpResponse& response){
+        if(req.method!="POST" || req.role.empty() || req.path.rfind("/api/",0)!=0)return;
+        try{
+            auto result=nlohmann::json::parse(response.body,nullptr,false);
+            if(req.path=="/api/thc/control" && response.status>=200 && response.status<300 && result.is_object() && result.contains("job")){response.auditRecorded=true;return;}
+            auto actor=nlohmann::json{{"id",req.accessId},{"label",req.accessLabel},{"role",req.role}};
+            response.auditRecorded=Thc::AuditRequest(Thc::HttpAuditDetails(req.path,req.body,response.status,response.body,actor));
+        }catch(...){response.auditRecorded=false;}
+    };
+    if(!(req.method=="GET" && req.path=="/dashboard")){
+        std::string token;auto auth=req.headers.find("authorization");
+        if(auth!=req.headers.end() && auth->second.rfind("Bearer ",0)==0)token=auth->second.substr(7);
+        auto identity=Thc::Access::Get().Identity(token,g_Config.rest.bearerToken);
+        req.role=identity.value("role",std::string{});req.accessId=identity.value("id",std::string{});req.accessLabel=identity.value("label",std::string{});
+        if(req.role.empty()){
+            HttpResponse denied(401);denied.body=R"({"error":"Unauthorized: invalid or missing bearer token"})";
+            SendResponse(clientSocket,denied);close(clientSocket);return;
         }
-        if (!authorized) {
-            HttpResponse resp(401);
-            resp.body = R"({"error":"Unauthorized: invalid or missing bearer token"})";
-            SendResponse(clientSocket, resp);
-            close(clientSocket);
-            return;
+        if(!Thc::Access::Allows(req.role,req.method,req.path)){
+            HttpResponse denied(403);denied.body=R"({"error":"This access token cannot perform that action"})";
+            audit(denied);SendResponse(clientSocket,denied);close(clientSocket);return;
         }
     }
 
     HttpResponse resp;
     bool found = false;
 
+    RouteHandler handler;
     {
         std::lock_guard<std::mutex> lock(routesMutex);
-        for (const auto& route : routes) {
-            if (route.method != req.method || route.path != req.path) continue;
-            try {
-                resp = route.handler(req);
-            } catch (...) {
-                resp = HttpResponse(500);
-                resp.body = R"({"error":"Internal server error"})";
-            }
-            found = true;
-            break;
+        for(const auto& route:routes) {
+            if(route.method==req.method && route.path==req.path){handler=route.handler;found=true;break;}
         }
     }
-
+    if(found) {
+        try {
+            if(req.method=="POST" && !nlohmann::json::parse(req.body,nullptr,false).is_object()) {
+                resp=HttpResponse(400);resp.body=R"({"error":"JSON object required"})";
+            } else resp=handler(req);
+        } catch(...) {
+            resp=HttpResponse(500);resp.body=R"({"error":"Internal server error"})";
+        }
+    }
     if (!found) {
         resp = HttpResponse(404);
         resp.body = R"({"error":"Not found"})";
     }
 
+    audit(resp);
     LogVerbose("HTTP: " + req.method + " " + req.path + " -> " + std::to_string(resp.status));
 
     SendResponse(clientSocket, resp);
