@@ -152,6 +152,11 @@ constexpr uintptr_t SurvivalStat_Current    = 0x130;
 constexpr uintptr_t SurvivalStat_CurrentMax = 0x134;
 constexpr uintptr_t SurvivalStat_DecayBuffer = 0x138;
 
+// EnduranceComponent: live reflected FloatProperties verified 2026-11-15.
+// Rest has its own maximum; +0x134 is its decay buffer, not its maximum.
+constexpr uintptr_t Endurance_Current = 0x130;
+constexpr uintptr_t Endurance_Max = 0xE0;
+
 // USkillComponent - Source: RSDWSDK/CppSDK/SDK/Dominion_classes.hpp
 constexpr uintptr_t Skill_Skills = 0x188; // TArray<FSkill>
 constexpr uintptr_t FSkill_CurrentXP = 0x00;
@@ -219,6 +224,10 @@ struct PlayerInfo {
     bool hasHydration = false;
     float hydration = 0.0f;
     float maxHydration = 0.0f;
+
+    bool hasRest = false;
+    float rest = 0.0f;
+    float maxRest = 0.0f;
 
     std::vector<SkillInfo> skills;
     std::vector<AttributeInfo> attributes;
@@ -296,12 +305,15 @@ public:
     std::string ReadUniqueNetId(uintptr_t netIdRepl, std::string& outSource) const;
 
     std::vector<PlayerInfo> GetAllPlayers() const;
+    // Fresh identity/pawn data only: no world-object scan or attribute/skill reads.
+    std::vector<PlayerInfo> GetPlayerIdentities() const;
 
 private:
+    std::vector<PlayerInfo> ReadPlayers(bool details) const;
     void ReadAttributeArrays(uintptr_t attributesComponent, uintptr_t attributesOffset,
                              uintptr_t valuesOffset, bool shared,
                              std::vector<AttributeInfo>& out) const;
-    void ReadHealthAndAttributes(PlayerInfo& info) const;
+    void ReadHealthAndAttributes(PlayerInfo& info, uintptr_t health, uintptr_t attributes) const;
     void ReadSkills(PlayerInfo& info) const;
 
 public:

@@ -40,7 +40,7 @@ uintptr_t Engine::FindFunction(const char* owner,const char* name)const{return s
 bool Engine::IsA(uintptr_t object,const char* name)const{std::string type=name;return (object==(uintptr_t)script && type=="ScriptStruct") || (object==(uintptr_t)pawn && type=="DominionPlayerCharacter") || (object==(uintptr_t)goblin && type=="DominionAICharacter") || (object==(uintptr_t)controller && type=="Controller");}
 std::string Engine::GetObjectName(uintptr_t object)const{return object==(uintptr_t)script?"DominionDamageEvent":object==(uintptr_t)fn?"Client_SendDeathEventTelemetry":"";}
 std::string Engine::GetObjectClassName(uintptr_t object)const{if(throwCapture)throw std::runtime_error("capture failure");return object==(uintptr_t)fall?"BP_FallDamageActor_C":object==(uintptr_t)goblin?"BP_AI_RuntGoblin_Character_C":"";}
-std::vector<PlayerInfo> Engine::GetAllPlayers()const{return players;}
+std::vector<PlayerInfo> Engine::GetPlayerIdentities()const{return players;}
 }
 int main(){
  auto page=(size_t)sysconf(_SC_PAGESIZE);auto memory=mmap(nullptr,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(memory!=MAP_FAILED);table=(uintptr_t)memory;Register(memory,page);

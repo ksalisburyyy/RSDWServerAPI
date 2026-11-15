@@ -13,6 +13,8 @@ build/tests/http_audit_test
 build/tests/recovery_test
 "$CXX" "${FLAGS[@]}" tests/health_attributes_test.cpp -o build/tests/health_attributes_test
 build/tests/health_attributes_test
+"$CXX" "${FLAGS[@]}" tests/player_identities_test.cpp src/runtime.cpp -o build/tests/player_identities_test
+build/tests/player_identities_test
 "$CXX" "${FLAGS[@]}" tests/command_args_test.cpp -o build/tests/command_args_test
 build/tests/command_args_test
 "$CXX" "${FLAGS[@]}" tests/event_page_test.cpp -o build/tests/event_page_test

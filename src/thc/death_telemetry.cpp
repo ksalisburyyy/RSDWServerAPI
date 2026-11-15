@@ -109,7 +109,9 @@ void Update(const std::vector<DomEngine::PlayerInfo>& players,const DamageFields
  GameThread::RunSync([layout]{
   if(stopped)return;
   auto* e=DomEngine::g_Engine;if(!e)return;
-  auto current=e->GetAllPlayers();std::map<uintptr_t,Binding> bindings;
+  // Bind against fresh game-thread identities. Health/skills/survival data are
+  // unused here; the detailed API path also scans every loaded world object.
+  auto current=e->GetPlayerIdentities();std::map<uintptr_t,Binding> bindings;
   std::set<std::string> guids;std::set<uintptr_t> ambiguous;
   for(const auto& p:current){
    if(!p.pawnPtr || p.characterGuid.size()!=32 || p.characterGuid.find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos || p.characterName.empty() || (Mem::ReadI32(p.pawnPtr+DomEngine::Offsets::UObject_Flags,-1)&0x18030) || !e->IsA(p.pawnPtr,"DominionPlayerCharacter"))continue;

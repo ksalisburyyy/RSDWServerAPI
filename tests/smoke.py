@@ -97,7 +97,7 @@ Enabled=false
                 time.sleep(.05)
         else:
             raise AssertionError('local fixture API did not start')
-        assert health['version'] == '0.5.0-thc.8'
+        assert health['version'] == '0.5.0-thc.10'
         recent=expect('GET','/api/thc/events?latest=1&limit=500',200)
         assert len(recent['events'])==500 and recent['events'][-1]['id']==recent['latestId']
         assert recent['events'][0]['id']==recent['latestId']-499

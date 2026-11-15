@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Browser checks against the embedded dashboard and fake API responses only."""
 import json
+import os
+import shutil
 import base64
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,13 +20,15 @@ class Handler(BaseHTTPRequestHandler):
 server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
 thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
 malicious='<img src=x onerror="window.bad=true">'
-player={'name':'Platform','characterName':malicious,'uniqueNetId':'76561190000000000','characterGuid':'A'*32,'playerId':1,'platform':'PC','location':{'x':100,'y':200,'z':300},'pingMs':40,'health':{'current':90,'max':100},'sustenance':{'current':80,'max':100},'hydration':{'current':70,'max':100}}
+player={'name':'Platform','characterName':malicious,'uniqueNetId':'76561190000000000','characterGuid':'A'*32,'playerId':1,'platform':'PC','location':{'x':100,'y':200,'z':300},'pingMs':40,'health':{'current':210,'max':210},'rest':{'current':89.8,'max':100},'sustenance':{'current':80,'max':100},'hydration':{'current':70,'max':100}}
 requests=[];errors=[];request_urls=[]
 save_fixture={'available':True,'busy':False,'request':{'state':'idle'}}
+backup_fixture=[{'id':'20261025000000-1234abcd','time':1000,'bytes':1024,'files':1}]
+backup_failure=False
 control_fixture={'ok':True,'mode':'owned_process','running':True,'restartConfigured':True,'settingsConfigured':True,'jobs':[]}
 try:
  with sync_playwright() as pw:
-    browser=pw.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+    browser=pw.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),headless=True,args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1440,'height':1000});page.on('dialog',lambda dialog:dialog.accept());page.on('pageerror',lambda error: errors.append(str(error)))
     def intercept(route):
         request=route.request;path=urlparse(request.url).path
@@ -36,6 +40,8 @@ try:
         payload=request.post_data_json if request.method=='POST' else None
         if request.headers.get('authorization')=='Bearer viewer' and request.method=='POST':route.fulfill(status=403,json={'error':'Read-only access'});return
         requests.append((path,payload));request_urls.append(request.url)
+        if path=='/api/thc/control/backups' and backup_failure:
+            route.fulfill(status=503,json={'error':'Fixture backup list unavailable'});return
         data={
             '/api/thc/access/me':{'role':'viewer' if request.headers.get('authorization')=='Bearer viewer' else 'admin','label':'Viewer' if request.headers.get('authorization')=='Bearer viewer' else 'Minghoo','id':'fixture-id'},
             '/api/thc/access':{'tokens':[{'id':'token1','label':'Viewer fixture','role':'viewer'}]},
@@ -43,7 +49,7 @@ try:
             '/api/thc/settings':{'apiPort':8081,'combatTracking':True,'saveCommand':'','discordEnabled':True,'discordUsername':'THC','threadIds':{'chat':'1560961724671332372'},'webhooks':{'chat':True}},
             '/api/thc/control':control_fixture,
             '/api/thc/control/logs':{'ok':True,'lines':['[fixture] real log transport']},
-            '/api/thc/control/backups':{'ok':True,'backups':[{'id':'20261025000000-1234abcd','time':1000,'bytes':1024,'files':1}]},
+            '/api/thc/control/backups':{'ok':True,'backups':backup_fixture},
             '/api/thc/control/game-settings':{'ok':True,'settings':{'ServerName':'THC fixture','MaxPlayers':'4','WorldPassword':True}},
             '/api/thc/recheck':{'id':1,'state':'queued','message':'Validated discovery retry queued'},
             '/api/thc/analytics':{'hours':[{'time':1000+i*3600,'joins':i%3,'deaths':i%2,'kills':i%4,'chat':i%5} for i in range(24)]},
@@ -71,6 +77,17 @@ try:
 
     page.evaluate("renderInvite({available:false})");assert page.locator('#inviteCode').is_disabled() and page.locator('#inviteCode').inner_text()=='Invite: waiting'
     page.evaluate('refresh()');page.locator('#inviteCode').filter(has_text='ABCD-1234').wait_for()
+    # The overview and detail list both show HP and rest, including real zero and unavailable values.
+    assert page.locator('#overviewPlayersTable th').all_text_contents().count('Rest')==1
+    assert page.locator('#overviewPlayersTable').get_by_text('210/210',exact=True).count()==1
+    assert page.locator('#overviewPlayersTable').get_by_text('90/100',exact=True).count()==1
+    page.evaluate("players([{...lastPlayers[0],rest:{current:0,max:100}}])")
+    assert page.locator('#overviewPlayersTable').get_by_text('0/100',exact=True).count()==1
+    page.evaluate("players([{...lastPlayers[0],rest:null}])")
+    assert page.locator('#overviewPlayersTable tbody tr td').nth(6).inner_text()=='—'
+    page.evaluate('(p)=>players([p])',player)
+    assert page.locator('#playersTable th').all_text_contents().count('Rest')==1
+    assert page.locator('#playersTable').get_by_text('90 / 100',exact=True).count()==1
     page.get_by_role('button',name='Players',exact=True).click();page.locator('#playersTable').get_by_text(malicious,exact=True).click()
     assert json.loads(page.locator('#playerDetail').inner_text())['characterName']==malicious
     assert page.locator('#playersTable img').count()==0 and not page.evaluate('Boolean(window.bad)')
@@ -119,6 +136,10 @@ try:
     assert page.locator('#updateServer').is_disabled() and page.locator('#updateDashboard').is_disabled()
     assert page.locator('#serverStart').is_disabled() and page.locator('#serverStop').is_disabled()
     page.get_by_role('button',name='Server Management',exact=True).click();page.locator('#backupsTable').get_by_text('20261025000000-1234abcd',exact=True).wait_for()
+    page.locator('#backupSummary').filter(has_text='Showing 1 backup').wait_for()
+    backup_fixture.clear();page.evaluate('loadBackups()');assert 'No saved backups found' in page.locator('#backupSummary').inner_text();assert page.locator('#restoreId option').count()==0
+    backup_failure=True;page.evaluate('loadBackups()');assert 'status is unknown' in page.locator('#backupSummary').inner_text()
+    backup_failure=False;backup_fixture.append({'id':'20261025000000-1234abcd','time':1000,'bytes':1024,'files':1});page.evaluate('loadBackups()')
     page.get_by_role('button',name='Analytics',exact=True).click();page.locator('#analyticsChart rect').first.wait_for(state='attached');assert page.locator('#analyticsChart rect').count()==72
     page.get_by_role('button',name='Overview',exact=True).click();page.locator('#quickSave').click();page.wait_for_function("document.getElementById('saveDetails').textContent.includes('pending')");assert page.locator('#quickSave').is_disabled()
     save_fixture.update({'busy':False,'request':{'state':'reported_success'}});page.evaluate('refresh()');page.wait_for_function("document.getElementById('saveDetails').textContent.includes('reported_success')");assert page.locator('#quickSave').is_enabled()

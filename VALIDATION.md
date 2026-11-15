@@ -1,6 +1,7 @@
-# Synchronization validation
+# Synchronization validation (historical)
 
-Validated in an isolated staging checkout; production was not modified.
+Validated during the original source synchronization; production was not modified.
+See POLISH_VALIDATION.md for the subsequent native and browser fixture results.
 
 - Python AST parsing passed for all tools and tests.
 - Nine Python fixture suites passed: control, control_adoption, update,

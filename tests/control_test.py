@@ -17,6 +17,17 @@ with tempfile.TemporaryDirectory() as directory:
  config={'server_root':str(root),'save_directory':'Saved/SaveGames','backup_directory':str(Path(directory)/'backups'),'log_file':'server.log','settings_file':'DedicatedServer.ini','mode':'disabled','game_executable':str(game)}
  c=control.Controller(config);assert c.status()['running'] is False
  c.backup();rows=c.list_backups();assert len(rows)==1 and rows[0]['files']==1
+ # Malformed or misleading metadata must not break the dashboard or offer bogus restores.
+ for n,payload in enumerate([[],42,{'id':[]},{**rows[0],'bytes':'not a size'},{**rows[0],'time':True},{**rows[0],'sha256':'bad'},rows[0]]):
+  ident=f'20260101000000-{n:08x}'
+  if n in (3,4,5):
+   payload={**payload,'id':ident}
+   (c.backups/(ident+'.zip')).write_bytes(b'fixture archive')
+  (c.backups/(ident+'.json')).write_text(json.dumps(payload))
+ missing={**rows[0],'id':'20260101000000-ffffffff'}
+ (c.backups/(missing['id']+'.json')).write_text(json.dumps(missing))
+ assert c.list_backups()==rows
+ assert (saves/'world.sav').read_bytes()==b'known-world-save'
  (saves/'world.sav').write_bytes(b'changed-world');c.restore(rows[0]['id']);assert (saves/'world.sav').read_bytes()==b'known-world-save';assert list(saves.parent.glob('SaveGames.thc-before-restore-*'))
  assert c.settings()['WorldPassword'] is True and 'secret' not in json.dumps(c.settings())
  c.update_settings({'ServerName':'After','MaxPlayers':8});assert 'OtherSetting=unchanged' in ini.read_text();assert c.settings()['ServerName']=='After'

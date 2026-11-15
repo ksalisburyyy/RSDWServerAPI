@@ -4,6 +4,7 @@
 #include "../utils/memory.h"
 
 #include <cstring>
+#include <cmath>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -12,9 +13,21 @@ namespace DomEngine {
 
 namespace {
 
+// Reject ambiguous components rather than displaying a value from an arbitrary instance.
+struct ComponentSlot {
+    uintptr_t pointer = 0;
+    bool ambiguous = false;
+    void Observe(uintptr_t object) {
+        if (pointer && pointer != object) ambiguous = true;
+        pointer = object;
+    }
+    uintptr_t Get() const { return ambiguous ? 0 : pointer; }
+};
+
 struct PawnComponents {
     uintptr_t sustenance = 0;
     uintptr_t hydration = 0;
+    ComponentSlot health, attributes, endurance;
 };
 
 void ReadDoubleTriple(uintptr_t address, double& a, double& b, double& c) {
@@ -41,6 +54,7 @@ void Engine::ReadAttributeArrays(uintptr_t attributesComponent, uintptr_t attrib
     FUEArray values = {};
     if (!ReadArray(attributesComponent + attributesOffset, attributes, 512)) return;
     if (!ReadArray(attributesComponent + valuesOffset, values, 512)) return;
+    if (attributes.Num != values.Num || attributes.Max < attributes.Num || values.Max < values.Num) return;
     if (!Mem::Readable(attributes.Data, sizeof(uintptr_t) * (size_t)attributes.Num)) return;
     if (!Mem::Readable(values.Data, sizeof(float) * (size_t)values.Num)) return;
 
@@ -64,17 +78,17 @@ void Engine::ReadAttributeArrays(uintptr_t attributesComponent, uintptr_t attrib
     }
 }
 
-void Engine::ReadHealthAndAttributes(PlayerInfo& info) const {
+void Engine::ReadHealthAndAttributes(PlayerInfo& info, uintptr_t health,
+                                     uintptr_t attributesComponent) const {
     if (!IsA(info.pawnPtr, "DominionPlayerCharacter")) return;
 
-    uintptr_t health = Mem::ReadPtr(info.pawnPtr + Offsets::DomPlayerChar_HealthComponent);
-    if (!health || !Mem::Readable((void*)health, 0x1B8)) return;
-
-    info.canDie = Mem::ReadU8(health + Offsets::Health_bCanDie) != 0;
-
-    uintptr_t attributesComponent =
-        Mem::ReadPtr(info.pawnPtr + Offsets::DomPlayerChar_AttributesComponent);
-    if (!attributesComponent || !Mem::Readable((void*)attributesComponent, 0x1B8)) return;
+    // Both components were discovered by type and pawn ownership in the existing
+    // enumeration below. Old SDK pawn member offsets no longer match this game.
+    uint8_t canDie = 0;
+    if (health && Mem::Read(health + Offsets::Health_bCanDie, canDie)) {
+        info.canDie = canDie != 0;
+    }
+    if (!attributesComponent) return;
 
     ReadAttributeArrays(attributesComponent, Offsets::Attributes_FloatAttributes,
                         Offsets::Attributes_AttributeValues, false, info.attributes);
@@ -109,6 +123,14 @@ void Engine::ReadSkills(PlayerInfo& info) const {
 }
 
 std::vector<PlayerInfo> Engine::GetAllPlayers() const {
+    return ReadPlayers(true);
+}
+
+std::vector<PlayerInfo> Engine::GetPlayerIdentities() const {
+    return ReadPlayers(false);
+}
+
+std::vector<PlayerInfo> Engine::ReadPlayers(bool details) const {
     std::vector<PlayerInfo> players;
     if (!initialized) return players;
 
@@ -206,6 +228,11 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             info.controllerPtr = Mem::ReadPtr(pawn + Offsets::Pawn_Controller);
             pawnSet.insert(pawn);
 
+            if (!details) {
+                players.push_back(info);
+                continue;
+            }
+
             uintptr_t root = Mem::ReadPtr(pawn + Offsets::Actor_RootComponent);
             if (root && Mem::Readable((void*)root, 0x200)) {
                 ReadDoubleTriple(root + Offsets::SceneComp_RelativeLocation, info.x, info.y, info.z);
@@ -228,7 +255,7 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
         players.push_back(info);
     }
 
-    if (pawnSet.empty()) return players;
+    if (!details || pawnSet.empty()) return players;
 
     std::unordered_map<uintptr_t, PawnComponents> byPawn;
     int32_t objectCount = GetObjectCount();
@@ -244,18 +271,35 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             slots.sustenance = object;
         } else if (!slots.hydration && IsA(object, "HydrationComponent")) {
             slots.hydration = object;
+        } else if (IsA(object, "PlayerHealthComponent")) {
+            slots.health.Observe(object);
+        } else if (IsA(object, "DominionAttributesComponent")) {
+            slots.attributes.Observe(object);
+        } else if (IsA(object, "EnduranceComponent")) {
+            slots.endurance.Observe(object);
         }
     }
 
     for (PlayerInfo& info : players) {
         if (!info.pawnPtr) continue;
 
-        ReadHealthAndAttributes(info);
         ReadSkills(info);
 
         auto it = byPawn.find(info.pawnPtr);
         if (it == byPawn.end()) continue;
         const PawnComponents& slots = it->second;
+        ReadHealthAndAttributes(info, slots.health.Get(), slots.attributes.Get());
+
+        uintptr_t endurance = slots.endurance.Get();
+        float current = 0, maximum = 0;
+        if (endurance && Mem::Read(endurance + Offsets::Endurance_Current, current) &&
+            Mem::Read(endurance + Offsets::Endurance_Max, maximum) &&
+            std::isfinite(current) && std::isfinite(maximum) && maximum > 0 &&
+            current >= 0 && current <= maximum) {
+            info.hasRest = true;
+            info.rest = current;
+            info.maxRest = maximum;
+        }
 
         if (slots.sustenance && Mem::Readable((void*)slots.sustenance, 0x140)) {
             info.hasSustenance = true;
