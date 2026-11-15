@@ -20,7 +20,7 @@ class Handler(BaseHTTPRequestHandler):
 server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
 thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
 malicious='<img src=x onerror="window.bad=true">'
-player={'name':'Platform','characterName':malicious,'uniqueNetId':'76561190000000000','characterGuid':'A'*32,'playerId':1,'platform':'PC','location':{'x':100,'y':200,'z':300},'pingMs':40,'health':{'current':90,'max':100},'sustenance':{'current':80,'max':100},'hydration':{'current':70,'max':100}}
+player={'name':'Platform','characterName':malicious,'uniqueNetId':'76561190000000000','characterGuid':'A'*32,'playerId':1,'platform':'PC','location':{'x':100,'y':200,'z':300},'pingMs':40,'health':{'current':210,'max':210},'rest':{'current':89.8,'max':100},'sustenance':{'current':80,'max':100},'hydration':{'current':70,'max':100}}
 requests=[];errors=[];request_urls=[]
 save_fixture={'available':True,'busy':False,'request':{'state':'idle'}}
 backup_fixture=[{'id':'20261025000000-1234abcd','time':1000,'bytes':1024,'files':1}]
@@ -77,6 +77,17 @@ try:
 
     page.evaluate("renderInvite({available:false})");assert page.locator('#inviteCode').is_disabled() and page.locator('#inviteCode').inner_text()=='Invite: waiting'
     page.evaluate('refresh()');page.locator('#inviteCode').filter(has_text='ABCD-1234').wait_for()
+    # The overview and detail list both show HP and rest, including real zero and unavailable values.
+    assert page.locator('#overviewPlayersTable th').all_text_contents().count('Rest')==1
+    assert page.locator('#overviewPlayersTable').get_by_text('210/210',exact=True).count()==1
+    assert page.locator('#overviewPlayersTable').get_by_text('90/100',exact=True).count()==1
+    page.evaluate("players([{...lastPlayers[0],rest:{current:0,max:100}}])")
+    assert page.locator('#overviewPlayersTable').get_by_text('0/100',exact=True).count()==1
+    page.evaluate("players([{...lastPlayers[0],rest:null}])")
+    assert page.locator('#overviewPlayersTable tbody tr td').nth(6).inner_text()=='—'
+    page.evaluate('(p)=>players([p])',player)
+    assert page.locator('#playersTable th').all_text_contents().count('Rest')==1
+    assert page.locator('#playersTable').get_by_text('90 / 100',exact=True).count()==1
     page.get_by_role('button',name='Players',exact=True).click();page.locator('#playersTable').get_by_text(malicious,exact=True).click()
     assert json.loads(page.locator('#playerDetail').inner_text())['characterName']==malicious
     assert page.locator('#playersTable img').count()==0 and not page.evaluate('Boolean(window.bad)')

@@ -1,6 +1,9 @@
-# Player scan and backup polish — staging validation
+# Player scan and backup polish — original staging validation
 
-This change is prepared on top of the verified 0.5.0-thc.8 source. It is not deployed.
+This records the original staging checks against 0.5.0-thc.8.
+The compatible .9 release was subsequently deployed with explicit owner approval;
+see RELEASE_0.5.0-thc.9.md. The later HP/rest follow-up is staged separately in
+RELEASE_0.5.0-thc.10.md. Statements below describe that original validation stage.
 
 ## Behavior
 
