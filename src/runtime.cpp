@@ -50,7 +50,7 @@ bool RconEnabled() { return g_RconEnabled; }
 bool RconRunning() { return g_RconRunning; }
 int RconPort() { return g_RconPort; }
 
-const char* Version() { return "0.5.0-thc.8"; }
+const char* Version() { return "0.5.0-thc.9"; }
 
 void MarkFailure(){g_InternalFailure=true;}
 bool HasFailure(){return g_InternalFailure;}
