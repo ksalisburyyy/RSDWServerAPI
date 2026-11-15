@@ -1,6 +1,6 @@
 # 0.5.0-thc.10 — restore player health and display rest
 
-Prepared follow-up to the deployed .9 optimization; not installed into the live game.
+Deployed follow-up to the .9 optimization; live health and rest readings verified.
 
 ## Problem and behavior
 
@@ -44,7 +44,20 @@ player/serializer fixture also passed when rebuilt with the release compiler.
 The complete library was rebuilt with the isolated Debian bookworm/GCC12 toolchain,
 static C++ runtimes and maximum imported GLIBC2.36. Native SHA256:
 b28473786c12d030e371f8f626a437bb682064a68f7e98eace4d761bc2b415d4.
-Verify the package manifest before installation. The running server remains .9 until a coordinated clean stop and
-save backup; never replace the loaded library during a player's session. Installation
-and ordinary gameplay confirmation of the new reader are separate from fixture
-validation. Keep the existing private .9 backup/rollback artifacts and runtime data.
+Verify the package manifest before installation. The owner subsequently authorized a restart as the sole connected player. The game
+confirmed a manual world save before the clean stop. Save backup
+20261115071425-541bae2d and a separately verified private snapshot of current saves,
+configuration, access/map/history and previous deployed code completed first.
+Only the library and dashboard were installed; controller/watcher code was retained.
+Original permissions and ACLs were restored. Protected files matched before startup.
+
+The restarted game reports .10 with a healthy engine. After the owner spawned,
+the actual native API returned health 210/210, rest 88.267/100 and valid food/water.
+HTTPS /dashboard matched the .10 manifest, including both Rest columns, with
+no-store headers. An already open browser tab needed refreshing to load the new
+page; its polling had already picked up the new health values. All four historical
+character IDs and nondecreasing counters were verified. Native command/save/death
+integration readiness was rechecked after joining; readiness does not prove every
+gameplay action or cause. No inventory action, forced death or teleport was tested.
+Keep the private backups and installer rollback copies. Never replace a loaded
+library or roll back saves merely to undo code changes.
