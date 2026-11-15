@@ -109,6 +109,14 @@ void Engine::ReadSkills(PlayerInfo& info) const {
 }
 
 std::vector<PlayerInfo> Engine::GetAllPlayers() const {
+    return ReadPlayers(true);
+}
+
+std::vector<PlayerInfo> Engine::GetPlayerIdentities() const {
+    return ReadPlayers(false);
+}
+
+std::vector<PlayerInfo> Engine::ReadPlayers(bool details) const {
     std::vector<PlayerInfo> players;
     if (!initialized) return players;
 
@@ -206,6 +214,11 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             info.controllerPtr = Mem::ReadPtr(pawn + Offsets::Pawn_Controller);
             pawnSet.insert(pawn);
 
+            if (!details) {
+                players.push_back(info);
+                continue;
+            }
+
             uintptr_t root = Mem::ReadPtr(pawn + Offsets::Actor_RootComponent);
             if (root && Mem::Readable((void*)root, 0x200)) {
                 ReadDoubleTriple(root + Offsets::SceneComp_RelativeLocation, info.x, info.y, info.z);
@@ -228,7 +241,7 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
         players.push_back(info);
     }
 
-    if (pawnSet.empty()) return players;
+    if (!details || pawnSet.empty()) return players;
 
     std::unordered_map<uintptr_t, PawnComponents> byPawn;
     int32_t objectCount = GetObjectCount();

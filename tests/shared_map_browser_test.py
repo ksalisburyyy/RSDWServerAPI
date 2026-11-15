@@ -3,6 +3,7 @@
 import base64
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -28,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='thc-shared-map-') as directory:
  thread=threading.Thread(target=web.serve_forever,daemon=True);thread.start()
  try:
   with sync_playwright() as pw:
-   browser=pw.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+   browser=pw.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),headless=True,args=['--no-sandbox'])
    contexts=[browser.new_context() for _ in range(2)];pages=[c.new_page() for c in contexts];errors=[]
    for page in pages:
     page.on('pageerror',lambda e:errors.append(str(e)));page.on('dialog',lambda d:d.accept())

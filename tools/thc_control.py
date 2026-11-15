@@ -244,8 +244,17 @@ class Controller:
         rows=[]
         for path in sorted(self.backups.glob('*.json'),reverse=True):
             try:
+                if path.is_symlink():continue
                 row=json.loads(path.read_text())
-                if re.fullmatch(r'[0-9]{14}-[a-f0-9]{8}',row.get('id','')):rows.append({k:row[k] for k in ('id','time','bytes','sha256','files')})
+                if not isinstance(row,dict):continue
+                ident=row.get('id')
+                if not isinstance(ident,str) or not re.fullmatch(r'[0-9]{14}-[a-f0-9]{8}',ident) or path.stem!=ident:continue
+                if any(type(row.get(k)) is not int or row[k]<0 for k in ('time','bytes','files')):continue
+                checksum=row.get('sha256')
+                if not isinstance(checksum,str) or not re.fullmatch(r'[a-f0-9]{64}',checksum):continue
+                archive=self.backups/(ident+'.zip')
+                if archive.is_symlink() or not archive.is_file():continue
+                rows.append({k:row[k] for k in ('id','time','bytes','sha256','files')})
             except (OSError,ValueError,KeyError):pass
         return rows[:100]
     def backup(self):

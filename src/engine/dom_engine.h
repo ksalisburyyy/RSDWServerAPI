@@ -296,8 +296,11 @@ public:
     std::string ReadUniqueNetId(uintptr_t netIdRepl, std::string& outSource) const;
 
     std::vector<PlayerInfo> GetAllPlayers() const;
+    // Fresh identity/pawn data only: no world-object scan or attribute/skill reads.
+    std::vector<PlayerInfo> GetPlayerIdentities() const;
 
 private:
+    std::vector<PlayerInfo> ReadPlayers(bool details) const;
     void ReadAttributeArrays(uintptr_t attributesComponent, uintptr_t attributesOffset,
                              uintptr_t valuesOffset, bool shared,
                              std::vector<AttributeInfo>& out) const;
